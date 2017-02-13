@@ -1,0 +1,538 @@
+controller
+
+(function (app) { 
+	'use strict';
+
+	function SubsectionOneOneController($rootScope, $injector, APIDataService,
+                                     QuestionaireService, QuestionnaireReadyForReviewModal,
+                                     QuestionaireFactory, ContractDataFactory, $state, $stateParams, DocumentViewService/*, $filter*/) {
+		/*Private variables start*/
+		var vm = this;
+		var questionnaireCommon = QuestionaireService;
+
+		var ValidateNotNull = QuestionaireFactory.ValidateNotNull;
+		var RRModal = QuestionnaireReadyForReviewModal;
+
+		var questionnareResponseEndPoint = 'QuestionnaireResponses/getByStandardAndContract',
+            QuestionnaireResponsesUpdateEndPoint = 'QuestionnaireResponses';
+
+		//  var contractDataFactory = ContractDataFactory;
+		var applicableOptions = [{ id: 1, text: 'Yes' }, { id: 2, text: 'No' }];
+		/*Private variables end*/
+		var queryString = "";
+		//var translator = $filter('translate');
+		/*Public properties*/
+		vm.applicableOptions = [];
+		vm.subsectionStatusClass = 'fa fa-circle-o right-bump-sm';
+		vm.editModel = null;
+		vm.questionaireResponseData = {};
+		vm.disable = true;
+		vm.ContractDataFactory = {};
+		vm.disableSecondary = false;
+
+
+
+		vm.contractData = [];
+		vm.activeValidations = {};
+
+
+		/*Public properties*/
+		function ConfigureData(questionnaire) {
+
+			questionnaire.userDisplay = {};
+
+			//this determines which icon to show
+
+			vm.subsectionStatusClass = questionnaireCommon.deterMineSubsectionStatus(["q1_1_Status"], questionnaire, vm.subsectionStatusClass);
+
+
+
+
+			//this binds the  the dropdown values
+			questionnaireCommon.SetYesNoDisplay(questionnaire, "q1_1");
+
+			return questionnaire;
+
+		}
+
+		function DisableNext() {
+
+
+			return questionnaireCommon.disableNextButton(vm.questionaireResponseData, ['q1_1_Status']);
+
+		}
+
+		function HandleQuestionnaireResponseSuccess(result) {
+			vm.questionaireResponseData = ConfigureData(result.data);
+			vm.disable = DisableNext();
+			vm.editModel = JSON.parse(JSON.stringify(vm.questionaireResponseData));
+
+		}
+		function HandleQuestionnaireResponseFailure() {
+			//set error
+		}
+
+		function RefreshData() {
+
+			var contractid = ContractDataFactory.currentContract.id;
+			vm.standardStr = (ContractDataFactory.currStandard.text == 'US GAAP') ? ('USGAAP') : (ContractDataFactory.currStandard.text);
+			//vm.disableSecondary = ContractDataFactory.DisableSecondaryQuestionnaire();
+		//	vm.standardStr = ContractDataFactory.currentStandardName;
+
+			//TODO: 1 is for IFRS, 2 for USGAAP this will need to be determined dynamically
+			//in sprint 3
+			
+			queryString = ContractDataFactory.currentStatuses.accountStandardId + "/" + contractid;
+			APIDataService.GetQuery(questionnareResponseEndPoint, queryString).then(HandleQuestionnaireResponseSuccess, HandleQuestionnaireResponseFailure);
+
+
+		}
+
+		function RemoveValidation(validationString) {
+			delete vm.activeValidations[validationString];
+		}
+
+
+
+		//this function is used to update the dropdown values
+		function UpdateYesNoDisplay(updateYesNo, key, model) {
+
+			if (updateYesNo != null) {
+				model[key] = updateYesNo;
+				if (typeof vm.activeValidations[key] !== 'undefined') {
+					RemoveValidation(key);
+				}
+				questionnaireCommon.SetYesNoDisplay(model, key);
+			}
+
+
+
+			return model;
+
+		}
+		//this accepts the state and takes the user to that state
+		function GoToNextSection() {
+
+		    $state.go('questionnaire.1_2');
+		    //questionnaireCommon.goToSubsection(state, stateParams);
+
+
+		}
+
+		//this function checks if the of Questionnaire is in progress and the values in the dropdown is yes, then
+		//prompts the user to Mark Contract Complete.If User selects yes then takes him to GCI
+		function ReadyForReviewModalTriggerCheck(questionaireResponseData) {
+			if (questionaireResponseData.q1_1 == 1 && questionaireResponseData.statusId == 1) {
+				return RRModal.TriggerModal(null, 'sm', questionaireResponseData).then(function () { 
+					// GoToNextSection('questionnaire.gci');
+					//  $state.go('questionnaire.gci', { contractId: contractDataFactory.currentContract.referenceId, acctStandard: questionaireResponseData.accountStandardId });
+					//  $state.transitionTo('questionnaire.gci', { contractId: contractDataFactory.currentContract.referenceId }, { reload: true, inherit: false, notify: true });
+				});
+			}
+
+
+		}
+
+
+		function HandleSaveSuccess(result) {
+
+		    //RefreshData();
+		    //ConfigureData(result.data);
+			$rootScope.$emit('updateQuestionnaireNav');
+			//uses the result of Update api call
+			//ReadyForReviewModalTriggerCheck(result.config.data);
+
+			return result;
+
+
+
+		}
+		function HandleSaveFailure() {
+
+		}
+		function SaveItem(model) {
+
+
+			// Call Put Function For Update
+			return APIDataService.Update(QuestionnaireResponsesUpdateEndPoint, model.id, model).then(HandleSaveSuccess, HandleSaveFailure);
+			
+		}
+		function ApplyValidations(validationErrors) {
+			vm.activeValidations = validationErrors;
+		}
+
+		function ClearValidationErrors() {
+			vm.activeValidations = {};
+
+		}
+
+
+
+		function PreSaveValidation(model, question, next) {
+			//check if the dropdown value was selected
+			var validationResult = ValidateNotNull(model, question);
+			if (!_.isEmpty(validationResult)) {
+				// Ensure To Set The Validation Object
+				ApplyValidations(validationResult);
+				// Return From Here To Break Save Flow And Let The User Fix Errors
+				return;
+			}
+
+			ClearValidationErrors();
+			//set the status of the question to be complete
+			model["q1_1_Status"] = 2;
+
+			//if values in the dropdown is yes then the rest of questionaire is not applicable, except for q1_1
+			if (model.q1_1 == 1) {
+				questionnaireCommon.setNotApplicable(model, ['q1_1_Status']);
+				//if the value is no then the questionaire is required and updates the statuses of all questions except for q1_1
+			} else if (model.q1_1 == 2) {
+				questionnaireCommon.setIncomplete(model, ['q1_1_Status']);
+			}
+
+			//if the value is no then the questionaire is required
+
+
+		    //SaveItem(model);// inside saveSucces  we should call the modal window function.
+			SaveItem(model).then(function (result) {
+			    //once saved refresh the data
+			    ConfigureData(result.data);
+			    //this allows to keep user on the current 1.6 until the user have made the selection
+			    var prom = ReadyForReviewModalTriggerCheck(result.config.data);
+
+			    if (prom) {
+			        prom.then(function () {
+
+                              
+			        });
+                      
+			    } else {
+			        if (next) {
+			            GoToNextSection();
+			        }
+			    }
+			 
+
+
+			});
+
+		}
+
+
+
+
+
+
+
+
+
+
+
+		function init() {
+			vm.applicableOptions = applicableOptions;
+			//'.+ vm.standardStr+'
+
+
+			vm.editModel = null;
+			vm.questionaireResponseData = {};
+			vm.disable = true;
+			vm.ContractDataFactory = ContractDataFactory;
+			vm.documentViewService = DocumentViewService;
+			var isEmpty = _.isEmpty(ContractDataFactory.currentContract);
+			if (ContractDataFactory.currentContract && !isEmpty) {
+			   
+			    RefreshData(ContractDataFactory.currentContract, ContractDataFactory.currentStatuses);
+
+			}
+		}
+
+		////////////////////////////////////////////
+
+		init();//init is called for startup
+
+		$rootScope.$on('contractDataUpdated', RefreshData);
+		/*Public methods*/
+
+
+
+		vm.RefreshData = RefreshData;
+		vm.UpdateYesNo = UpdateYesNoDisplay;
+
+		vm.PreSave = PreSaveValidation;
+		vm.Next = GoToNextSection;
+		vm.RemoveValidation = RemoveValidation;
+
+		/*Public methods end*/
+	}
+
+	app.controller('Subsection1_1Controller', SubsectionOneOneController);
+
+	SubsectionOneOneController.$inject = ['$rootScope', '$injector', 'APIDataService', 'QuestionaireService', 'QuestionnaireReadyForReviewModal', 'QuestionaireFactory', 'ContractDataFactory', '$state', '$stateParams', 'DocumentViewService'/*, '$filter'*/];
+
+})(angular.module('leases.questionnaire'));
+
+
+Service
+
+////////////////////////////////////////////////////////////////////////////
+//
+// Name: common.services.APIDataService
+// Description:
+//		Simplified Method For Getting Data To And From The Web API In A 
+//		Central Location
+//
+////////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////
+// APIDataService Module Definition
+(function (app) { 
+	'use strict';
+
+	function DataServiceAPI($http, $q, APIConnectFactory) {
+		////////////////////////////////////////////////////////
+		// Define Private Methods
+		var enableCache = false;
+		var configGETHeader = function () { return { cache: enableCache, withCredentials: true }; };
+		var configPOSTHeader = function () { return { cache: enableCache, withCredentials: true }; };
+		var configPUTHeader = function () { return { cache: enableCache, withCredentials: true }; };
+		var configDELETEHeader = function () { return { cache: enableCache, withCredentials: true }; };
+
+		////////////////////////////////////////////////////////
+		// Define The Private Methods
+		
+		///////////////////////////////////////////////////////////////////////////////////
+		// Callback Functions That Are Routed From The API Back To The Calling Object
+		function APISuccess(result) {
+			return result;
+		}
+		function APIFailure(result) {
+			return $q.reject(result);
+		}
+		//////////////////////////////////////////////////////////////////////////////////
+
+		function GetAction(apiController, getId){
+			// Call Get With An ID To Get A Specific Record
+			var defer = $http.get(APIConnectFactory.url(apiController + '/' + getId), configGETHeader()).then(APISuccess, APIFailure);
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+		function GetAllAction(apiController){
+			// Get All The Records Related To The Calling Controller Action
+			var defer = $http.get(APIConnectFactory.url(apiController), configGETHeader()).then(APISuccess, APIFailure);
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+		function GetQueryAction(apiController, queryString){
+			// Get All The Records Related To The Calling Controller Action
+			var defer = $http.get(APIConnectFactory.url(apiController + '/' + queryString), configGETHeader()).then(APISuccess, APIFailure);
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+		function PostAction(apiController, newObject){
+			// Call Get With An ID To Get A Specific Record
+			var defer = $http.post(APIConnectFactory.url(apiController), newObject, configPOSTHeader()).then(APISuccess, APIFailure);
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+		function PutAction(apiController, updateId, updateObject){
+			// Call Get With An ID To Get A Specific Record
+			var defer = $http.put(APIConnectFactory.url(apiController + '/' + updateId), updateObject, configPUTHeader()).then(APISuccess, APIFailure);
+
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+		function DeleteAction(apiController, deleteId){
+			// Call Get With An ID To Get A Specific Record
+			var defer = $http.delete(APIConnectFactory.url(apiController + '/' + deleteId), configDELETEHeader()).then(APISuccess, APIFailure);
+			// Return The API Promise To Resolve Later
+			return defer;
+		}
+
+		// Methods
+		this.Get = GetAction;
+		this.GetAll = GetAllAction;
+		this.GetQuery = GetQueryAction;
+		this.Create = PostAction;
+		this.Update = PutAction;
+		this.Delete = DeleteAction;
+		this.BulkDelete = PostAction;
+	}
+
+	// Inject The Dependencies Into The Factory
+	DataServiceAPI.$inject = ['$http', '$q', 'APIConnectFactory'];
+	// Register The Service With Angular
+	app.service('APIDataService', DataServiceAPI);
+})(angular.module('common.services'));
+
+
+factory
+(function () { 
+	'use strict';
+    angular.module('common.services').factory('APIConnectFactory', ['leasesConfig', function (leasesConfig) {
+        return {
+            url: function (params) {
+                return leasesConfig.webApiUrl + '/api/' + params;
+            }
+        };
+    }]);
+})();
+
+app.constants.js
+
+(function () {
+    'use strict';
+    angular.module('leases').factory('leasesConfig', ['$window', function ($window) {
+        return {
+            'webApiUrl': angular.element($window.document.getElementsByTagName('base')[0]).attr('href'),
+            'sessionTimeoutCheckMin': 5, 
+            'sessionTimeoutMin': 30
+        };
+    }]);
+})();
+
+
+test
+
+(function () {
+
+    angular.module('leases', [
+        //angular dep
+
+        //3rd party dep
+        'ui.router',
+
+        //app dep
+        'leases.test'
+    ]);
+
+})();
+(function (app) {
+
+    app.config(MainConfig);
+
+    function MainConfig($stateProvider, $urlRouterProvider) {
+        $urlRouterProvider.otherwise('/');
+
+        $stateProvider.state('main', {
+            url: '/',
+            templateUrl: './app/main.tmpl.html',
+            controller: 'MainController',
+            controllerAs: 'vm'
+        });
+    }
+
+    MainConfig.$inject = ['$stateProvider', '$urlRouterProvider'];
+
+})(angular.module('leases'));
+(function (app) {
+
+    app.controller('MainController', MainController);
+
+    function MainController($location) {
+        var vm = this;
+
+        function init() {
+
+            if ($location.path() !== '/') {
+                $location.path('/');
+            }
+        }
+
+        init();
+    }
+
+    MainController.$inject = ['$location'];
+
+})(angular.module('leases'));
+(function (app, global) {
+    
+    app.constant('leasesConfig', {
+        'webApiUrl': 'http://' + global.location.hostname + ':8001'
+    });
+
+})(angular.module('leases'), this);
+(function () {
+    
+    angular.module('leases.test', ['leases']);
+
+})();
+(function (app) {
+
+
+    function TestConfig($stateProvider) {
+        $stateProvider.state('test', {
+            url: '/test',
+            templateUrl: './app/features/test/test.tmpl.html',
+            controller: 'TestController',
+            controllerAs: 'vm'
+        });
+    }
+
+    app.config(TestConfig);
+    TestConfig.$inject = ['$stateProvider'];
+
+})(angular.module('leases.test'));
+(function (app) {
+
+    function TestController(service) {
+        var vm = this;
+
+        vm.data = [];
+
+        function init() {
+            service.getData()
+                .then(function (data) {
+                    vm.data = data;
+
+                })
+                .catch(function (error) {
+                    console.log(error);
+                })
+                .finally(function () {
+                    //do something...
+                });
+        }
+
+        init();
+    }
+
+    app.controller('TestController', TestController);
+    TestController.$inject = ['TestHttpService'];
+
+})(angular.module('leases.test'));
+(function (app) {
+    
+    function TestHttpService($http, $q, leasesConfig) {
+        var url = leasesConfig.webApiUrl;
+
+        function handleSuccess(response) {
+            return response.data;
+        }
+
+        function handleError(response) {
+            if (!angular.isObject(response.data) ||
+                !response.data.messsage) {
+                return $q.reject('An unknown error occured');
+            }
+
+            return $q.reject(response.data.message);
+        }
+
+        function getData() {
+            return $http.get(url + '/api/test')
+                .then(handleSuccess, handleError);
+        }
+
+        return {
+            getData: getData
+        };
+    }
+
+    app.factory('TestHttpService', TestHttpService);
+    TestHttpService.$inject = ['$http', '$q', 'leasesConfig'];
+
+})(angular.module('leases.test'));
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImFwcC5tb2R1bGUuanMiLCJhcHAuY29uZmlnLmpzIiwiYXBwLmNvbnRyb2xsZXIuanMiLCJhcHAuY29uc3RhbnRzLmpzIiwidGVzdC5tb2R1bGUuanMiLCJ0ZXN0LmNvbmZpZy5qcyIsInRlc3QuY29udHJvbGxlci5qcyIsInRlc3QuaHR0cC5zZXJ2aWNlLmpzIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBLENBQUEsWUFBQTs7SUFFQSxRQUFBLE9BQUEsVUFBQTs7OztRQUlBOzs7UUFHQTs7OztBQ1RBLENBQUEsVUFBQSxLQUFBOztJQUVBLElBQUEsT0FBQTs7SUFFQSxTQUFBLFdBQUEsZ0JBQUEsb0JBQUE7UUFDQSxtQkFBQSxVQUFBOztRQUVBLGVBQUEsTUFBQSxRQUFBO1lBQ0EsS0FBQTtZQUNBLGFBQUE7WUFDQSxZQUFBO1lBQ0EsY0FBQTs7OztJQUlBLFdBQUEsVUFBQSxDQUFBLGtCQUFBOztHQUVBLFFBQUEsT0FBQTtBQ2pCQSxDQUFBLFVBQUEsS0FBQTs7SUFFQSxJQUFBLFdBQUEsa0JBQUE7O0lBRUEsU0FBQSxlQUFBLFdBQUE7UUFDQSxJQUFBLEtBQUE7O1FBRUEsU0FBQSxPQUFBOztZQUVBLElBQUEsVUFBQSxXQUFBLEtBQUE7Z0JBQ0EsVUFBQSxLQUFBOzs7O1FBSUE7OztJQUdBLGVBQUEsVUFBQSxDQUFBOztHQUVBLFFBQUEsT0FBQTtBQ25CQSxDQUFBLFVBQUEsS0FBQSxRQUFBOztJQUVBLElBQUEsU0FBQSxnQkFBQTtRQUNBLGFBQUEsWUFBQSxPQUFBLFNBQUEsV0FBQTs7O0dBR0EsUUFBQSxPQUFBLFdBQUE7QUNOQSxDQUFBLFlBQUE7O0lBRUEsUUFBQSxPQUFBLGVBQUEsQ0FBQTs7O0FDRkEsQ0FBQSxVQUFBLEtBQUE7OztJQUdBLFNBQUEsV0FBQSxnQkFBQTtRQUNBLGVBQUEsTUFBQSxRQUFBO1lBQ0EsS0FBQTtZQUNBLGFBQUE7WUFDQSxZQUFBO1lBQ0EsY0FBQTs7OztJQUlBLElBQUEsT0FBQTtJQUNBLFdBQUEsVUFBQSxDQUFBOztHQUVBLFFBQUEsT0FBQTtBQ2ZBLENBQUEsVUFBQSxLQUFBOztJQUVBLFNBQUEsZUFBQSxTQUFBO1FBQ0EsSUFBQSxLQUFBOztRQUVBLEdBQUEsT0FBQTs7UUFFQSxTQUFBLE9BQUE7WUFDQSxRQUFBO2lCQUNBLEtBQUEsVUFBQSxNQUFBO29CQUNBLEdBQUEsT0FBQTs7O2lCQUdBLE1BQUEsVUFBQSxPQUFBO29CQUNBLFFBQUEsSUFBQTs7aUJBRUEsUUFBQSxZQUFBOzs7OztRQUtBOzs7SUFHQSxJQUFBLFdBQUEsa0JBQUE7SUFDQSxlQUFBLFVBQUEsQ0FBQTs7R0FFQSxRQUFBLE9BQUE7QUMzQkEsQ0FBQSxVQUFBLEtBQUE7O0lBRUEsU0FBQSxnQkFBQSxPQUFBLElBQUEsY0FBQTtRQUNBLElBQUEsTUFBQSxhQUFBOztRQUVBLFNBQUEsY0FBQSxVQUFBO1lBQ0EsT0FBQSxTQUFBOzs7UUFHQSxTQUFBLFlBQUEsVUFBQTtZQUNBLElBQUEsQ0FBQSxRQUFBLFNBQUEsU0FBQTtnQkFDQSxDQUFBLFNBQUEsS0FBQSxVQUFBO2dCQUNBLE9BQUEsR0FBQSxPQUFBOzs7WUFHQSxPQUFBLEdBQUEsT0FBQSxTQUFBLEtBQUE7OztRQUdBLFNBQUEsVUFBQTtZQUNBLE9BQUEsTUFBQSxJQUFBLE1BQUE7aUJBQ0EsS0FBQSxlQUFBOzs7UUFHQSxPQUFBO1lBQ0EsU0FBQTs7OztJQUlBLElBQUEsUUFBQSxtQkFBQTtJQUNBLGdCQUFBLFVBQUEsQ0FBQSxTQUFBLE1BQUE7O0dBRUEsUUFBQSxPQUFBLGdCQUFBIiwiZmlsZSI6ImFwcC5taW4uanMiLCJzb3VyY2VzQ29udGVudCI6WyIoZnVuY3Rpb24gKCkge1xyXG5cclxuICAgIGFuZ3VsYXIubW9kdWxlKCdsZWFzZXMnLCBbXHJcbiAgICAgICAgLy9hbmd1bGFyIGRlcFxyXG5cclxuICAgICAgICAvLzNyZCBwYXJ0eSBkZXBcclxuICAgICAgICAndWkucm91dGVyJyxcclxuXHJcbiAgICAgICAgLy9hcHAgZGVwXHJcbiAgICAgICAgJ2xlYXNlcy50ZXN0J1xyXG4gICAgXSk7XHJcblxyXG59KSgpOyIsIihmdW5jdGlvbiAoYXBwKSB7XHJcblxyXG4gICAgYXBwLmNvbmZpZyhNYWluQ29uZmlnKTtcclxuXHJcbiAgICBmdW5jdGlvbiBNYWluQ29uZmlnKCRzdGF0ZVByb3ZpZGVyLCAkdXJsUm91dGVyUHJvdmlkZXIpIHtcclxuICAgICAgICAkdXJsUm91dGVyUHJvdmlkZXIub3RoZXJ3aXNlKCcvJyk7XHJcblxyXG4gICAgICAgICRzdGF0ZVByb3ZpZGVyLnN0YXRlKCdtYWluJywge1xyXG4gICAgICAgICAgICB1cmw6ICcvJyxcclxuICAgICAgICAgICAgdGVtcGxhdGVVcmw6ICcuL2FwcC9tYWluLnRtcGwuaHRtbCcsXHJcbiAgICAgICAgICAgIGNvbnRyb2xsZXI6ICdNYWluQ29udHJvbGxlcicsXHJcbiAgICAgICAgICAgIGNvbnRyb2xsZXJBczogJ3ZtJ1xyXG4gICAgICAgIH0pO1xyXG4gICAgfVxyXG5cclxuICAgIE1haW5Db25maWcuJGluamVjdCA9IFsnJHN0YXRlUHJvdmlkZXInLCAnJHVybFJvdXRlclByb3ZpZGVyJ107XHJcblxyXG59KShhbmd1bGFyLm1vZHVsZSgnbGVhc2VzJykpOyIsIihmdW5jdGlvbiAoYXBwKSB7XHJcblxyXG4gICAgYXBwLmNvbnRyb2xsZXIoJ01haW5Db250cm9sbGVyJywgTWFpbkNvbnRyb2xsZXIpO1xyXG5cclxuICAgIGZ1bmN0aW9uIE1haW5Db250cm9sbGVyKCRsb2NhdGlvbikge1xyXG4gICAgICAgIHZhciB2bSA9IHRoaXM7XHJcblxyXG4gICAgICAgIGZ1bmN0aW9uIGluaXQoKSB7XHJcblxyXG4gICAgICAgICAgICBpZiAoJGxvY2F0aW9uLnBhdGgoKSAhPT0gJy8nKSB7XHJcbiAgICAgICAgICAgICAgICAkbG9jYXRpb24ucGF0aCgnLycpO1xyXG4gICAgICAgICAgICB9XHJcbiAgICAgICAgfVxyXG5cclxuICAgICAgICBpbml0KCk7XHJcbiAgICB9XHJcblxyXG4gICAgTWFpbkNvbnRyb2xsZXIuJGluamVjdCA9IFsnJGxvY2F0aW9uJ107XHJcblxyXG59KShhbmd1bGFyLm1vZHVsZSgnbGVhc2VzJykpOyIsIihmdW5jdGlvbiAoYXBwLCBnbG9iYWwpIHtcclxuICAgIFxyXG4gICAgYXBwLmNvbnN0YW50KCdsZWFzZXNDb25maWcnLCB7XHJcbiAgICAgICAgJ3dlYkFwaVVybCc6ICdodHRwOi8vJyArIGdsb2JhbC5sb2NhdGlvbi5ob3N0bmFtZSArICc6ODAwMSdcclxuICAgIH0pO1xyXG5cclxufSkoYW5ndWxhci5tb2R1bGUoJ2xlYXNlcycpLCB0aGlzKTsiLCIoZnVuY3Rpb24gKCkge1xyXG4gICAgXHJcbiAgICBhbmd1bGFyLm1vZHVsZSgnbGVhc2VzLnRlc3QnLCBbJ2xlYXNlcyddKTtcclxuXHJcbn0pKCk7IiwiKGZ1bmN0aW9uIChhcHApIHtcclxuXHJcblxyXG4gICAgZnVuY3Rpb24gVGVzdENvbmZpZygkc3RhdGVQcm92aWRlcikge1xyXG4gICAgICAgICRzdGF0ZVByb3ZpZGVyLnN0YXRlKCd0ZXN0Jywge1xyXG4gICAgICAgICAgICB1cmw6ICcvdGVzdCcsXHJcbiAgICAgICAgICAgIHRlbXBsYXRlVXJsOiAnLi9hcHAvZmVhdHVyZXMvdGVzdC90ZXN0LnRtcGwuaHRtbCcsXHJcbiAgICAgICAgICAgIGNvbnRyb2xsZXI6ICdUZXN0Q29udHJvbGxlcicsXHJcbiAgICAgICAgICAgIGNvbnRyb2xsZXJBczogJ3ZtJ1xyXG4gICAgICAgIH0pO1xyXG4gICAgfVxyXG5cclxuICAgIGFwcC5jb25maWcoVGVzdENvbmZpZyk7XHJcbiAgICBUZXN0Q29uZmlnLiRpbmplY3QgPSBbJyRzdGF0ZVByb3ZpZGVyJ107XHJcblxyXG59KShhbmd1bGFyLm1vZHVsZSgnbGVhc2VzLnRlc3QnKSk7IiwiKGZ1bmN0aW9uIChhcHApIHtcclxuXHJcbiAgICBmdW5jdGlvbiBUZXN0Q29udHJvbGxlcihzZXJ2aWNlKSB7XHJcbiAgICAgICAgdmFyIHZtID0gdGhpcztcclxuXHJcbiAgICAgICAgdm0uZGF0YSA9IFtdO1xyXG5cclxuICAgICAgICBmdW5jdGlvbiBpbml0KCkge1xyXG4gICAgICAgICAgICBzZXJ2aWNlLmdldERhdGEoKVxyXG4gICAgICAgICAgICAgICAgLnRoZW4oZnVuY3Rpb24gKGRhdGEpIHtcclxuICAgICAgICAgICAgICAgICAgICB2bS5kYXRhID0gZGF0YTtcclxuXHJcbiAgICAgICAgICAgICAgICB9KVxyXG4gICAgICAgICAgICAgICAgLmNhdGNoKGZ1bmN0aW9uIChlcnJvcikge1xyXG4gICAgICAgICAgICAgICAgICAgIGNvbnNvbGUubG9nKGVycm9yKTtcclxuICAgICAgICAgICAgICAgIH0pXHJcbiAgICAgICAgICAgICAgICAuZmluYWxseShmdW5jdGlvbiAoKSB7XHJcbiAgICAgICAgICAgICAgICAgICAgLy9kbyBzb21ldGhpbmcuLi5cclxuICAgICAgICAgICAgICAgIH0pO1xyXG4gICAgICAgIH1cclxuXHJcbiAgICAgICAgaW5pdCgpO1xyXG4gICAgfVxyXG5cclxuICAgIGFwcC5jb250cm9sbGVyKCdUZXN0Q29udHJvbGxlcicsIFRlc3RDb250cm9sbGVyKTtcclxuICAgIFRlc3RDb250cm9sbGVyLiRpbmplY3QgPSBbJ1Rlc3RIdHRwU2VydmljZSddO1xyXG5cclxufSkoYW5ndWxhci5tb2R1bGUoJ2xlYXNlcy50ZXN0JykpOyIsIihmdW5jdGlvbiAoYXBwKSB7XHJcbiAgICBcclxuICAgIGZ1bmN0aW9uIFRlc3RIdHRwU2VydmljZSgkaHR0cCwgJHEsIGxlYXNlc0NvbmZpZykge1xyXG4gICAgICAgIHZhciB1cmwgPSBsZWFzZXNDb25maWcud2ViQXBpVXJsO1xyXG5cclxuICAgICAgICBmdW5jdGlvbiBoYW5kbGVTdWNjZXNzKHJlc3BvbnNlKSB7XHJcbiAgICAgICAgICAgIHJldHVybiByZXNwb25zZS5kYXRhO1xyXG4gICAgICAgIH1cclxuXHJcbiAgICAgICAgZnVuY3Rpb24gaGFuZGxlRXJyb3IocmVzcG9uc2UpIHtcclxuICAgICAgICAgICAgaWYgKCFhbmd1bGFyLmlzT2JqZWN0KHJlc3BvbnNlLmRhdGEpIHx8XHJcbiAgICAgICAgICAgICAgICAhcmVzcG9uc2UuZGF0YS5tZXNzc2FnZSkge1xyXG4gICAgICAgICAgICAgICAgcmV0dXJuICRxLnJlamVjdCgnQW4gdW5rbm93biBlcnJvciBvY2N1cmVkJyk7XHJcbiAgICAgICAgICAgIH1cclxuXHJcbiAgICAgICAgICAgIHJldHVybiAkcS5yZWplY3QocmVzcG9uc2UuZGF0YS5tZXNzYWdlKTtcclxuICAgICAgICB9XHJcblxyXG4gICAgICAgIGZ1bmN0aW9uIGdldERhdGEoKSB7XHJcbiAgICAgICAgICAgIHJldHVybiAkaHR0cC5nZXQodXJsICsgJy9hcGkvdGVzdCcpXHJcbiAgICAgICAgICAgICAgICAudGhlbihoYW5kbGVTdWNjZXNzLCBoYW5kbGVFcnJvcik7XHJcbiAgICAgICAgfVxyXG5cclxuICAgICAgICByZXR1cm4ge1xyXG4gICAgICAgICAgICBnZXREYXRhOiBnZXREYXRhXHJcbiAgICAgICAgfTtcclxuICAgIH1cclxuXHJcbiAgICBhcHAuZmFjdG9yeSgnVGVzdEh0dHBTZXJ2aWNlJywgVGVzdEh0dHBTZXJ2aWNlKTtcclxuICAgIFRlc3RIdHRwU2VydmljZS4kaW5qZWN0ID0gWyckaHR0cCcsICckcScsICdsZWFzZXNDb25maWcnXTtcclxuXHJcbn0pKGFuZ3VsYXIubW9kdWxlKCdsZWFzZXMudGVzdCcpKTsiXSwic291cmNlUm9vdCI6Ii9zb3VyY2UvIn0=
+
+
+<base href="."/>
