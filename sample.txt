@@ -1,4 +1,4 @@
-controller
+controller test
 
 (function (app) { 
 	'use strict';
